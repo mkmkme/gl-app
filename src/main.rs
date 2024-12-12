@@ -337,8 +337,12 @@ impl Renderer {
                 println!("Shaders version on {}", shaders_version.to_string_lossy());
             }
 
-            let vertex_shader = create_shader(&gl, gl::VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-            let fragment_shader = create_shader(&gl, gl::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
+            let vertex_shader_source = concat!(include_str!("main.vs"), "\0");
+            let fragment_shader_source = concat!(include_str!("main.fs"), "\0");
+            let vertex_shader =
+                create_shader(&gl, gl::VERTEX_SHADER, vertex_shader_source.as_bytes());
+            let fragment_shader =
+                create_shader(&gl, gl::FRAGMENT_SHADER, fragment_shader_source.as_bytes());
 
             let program = gl.CreateProgram();
 
@@ -473,29 +477,3 @@ static VERTEX_DATA: [f32; 15] = [
      0.0,  0.5,  0.0,  1.0,  0.0,
      0.5, -0.5,  0.0,  0.0,  1.0,
 ];
-
-const VERTEX_SHADER_SOURCE: &[u8] = b"
-#version 100
-precision mediump float;
-
-attribute vec2 position;
-attribute vec3 color;
-
-varying vec3 v_color;
-
-void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
-    v_color = color;
-}
-\0";
-
-const FRAGMENT_SHADER_SOURCE: &[u8] = b"
-#version 100
-precision mediump float;
-
-varying vec3 v_color;
-
-void main() {
-    gl_FragColor = vec4(v_color, 1.0);
-}
-\0";
