@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_draw_callback(Box::new(|renderer| {
             let elapsed = START.elapsed().unwrap().as_secs_f32();
             let green = ((elapsed * 4.0).sin() / 2.0 + 0.5) as f32;
-            renderer.uniform4f("outColor", 0.1, (green * 0.9) + 0.1, 0.1, 0.9);
+            renderer.set_vec4f("outColor", 0.1, (green * 0.9) + 0.1, 0.1, 0.9);
         }));
     event_loop.run_app(&mut app)?;
 

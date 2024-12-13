@@ -151,7 +151,7 @@ impl Renderer {
         }
     }
 
-    pub fn uniform4f(&self, name: &str, x: f32, y: f32, z: f32, w: f32) {
+    pub fn set_vec4f(&self, name: &str, x: f32, y: f32, z: f32, w: f32) {
         unsafe {
             let name = CString::new(name).unwrap();
             let location = self.gl.GetUniformLocation(self.program, name.as_ptr());
