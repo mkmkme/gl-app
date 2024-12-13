@@ -1,7 +1,7 @@
 use std::error::Error;
 
+use gl_app::{App, BufferData};
 use glutin::config::ConfigTemplateBuilder;
-use rust_opengl_example::{App, BufferData};
 use winit::{event_loop::EventLoop, window::Window};
 
 #[rustfmt::skip]

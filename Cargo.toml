@@ -1,5 +1,6 @@
 [package]
-name = "rust-opengl-example"
+name = "gl_app"
+authors = ["Mikhail Koviazin <github@mkmk.aleeas.com>"]
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
