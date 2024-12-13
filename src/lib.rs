@@ -5,7 +5,6 @@ use std::{
     ops::Deref,
 };
 
-use ::gl::VIEWPORT_BOUNDS_RANGE;
 use gl::types::GLfloat;
 use glutin::{
     config::{Config, ConfigTemplateBuilder, GetGlConfig, GlConfig},
@@ -340,7 +339,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new<D: GlDisplay>(gl_display: &D, shaders: &Shaders, buffer_data: &BufferData) -> Self {
+    fn new<D: GlDisplay>(gl_display: &D, shaders: &Shaders, buffer_data: &BufferData) -> Self {
         unsafe {
             let gl = gl::Gl::load_with(|symbol| {
                 let symbol = CString::new(symbol).unwrap();
