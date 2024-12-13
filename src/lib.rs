@@ -5,6 +5,7 @@ use std::{
     ops::Deref,
 };
 
+use ::gl::VIEWPORT_BOUNDS_RANGE;
 use gl::types::GLfloat;
 use glutin::{
     config::{Config, ConfigTemplateBuilder, GetGlConfig, GlConfig},
@@ -19,7 +20,7 @@ use glutin_winit::{DisplayBuilder, GlWindow};
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::ActiveEventLoop,
     keyboard::{Key, NamedKey},
     raw_window_handle::HasWindowHandle,
     window::{Window, WindowAttributes},
@@ -30,19 +31,6 @@ pub mod gl {
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
 
     pub use Gles2 as Gl;
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::new()?;
-
-    let template = ConfigTemplateBuilder::new().with_alpha_size(8);
-
-    let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attributes()));
-
-    let mut app = App::new(template, display_builder);
-    event_loop.run_app(&mut app)?;
-
-    app.exit_state
 }
 
 fn create_gl_context(window: &Window, gl_config: &Config) -> NotCurrentContext {
@@ -83,12 +71,6 @@ fn create_gl_context(window: &Window, gl_config: &Config) -> NotCurrentContext {
     }
 }
 
-fn window_attributes() -> WindowAttributes {
-    Window::default_attributes()
-        .with_transparent(true)
-        .with_title("Glutin triangle gradient example (press Escape to exit)")
-}
-
 enum GlDisplayCreationState {
     /// The display was not build yet.
     Builder(DisplayBuilder),
@@ -96,26 +78,54 @@ enum GlDisplayCreationState {
     Init,
 }
 
-struct App {
+struct Shaders {
+    vertex: &'static str,
+    fragment: &'static str,
+}
+
+pub struct BufferData {
+    pub vertices: Option<Vec<f32>>,
+}
+
+pub struct App {
     template: ConfigTemplateBuilder,
     renderer: Option<Renderer>,
     // NOTE: `AppState` carries the `Window`, thus it should be dropped after everything else.
     state: Option<AppState>,
     gl_context: Option<PossiblyCurrentContext>,
     gl_display: GlDisplayCreationState,
-    exit_state: Result<(), Box<dyn Error>>,
+    pub exit_state: Result<(), Box<dyn Error>>,
+
+    window_attributes: WindowAttributes,
+    shaders: Option<Shaders>,
+    buffer_data: BufferData,
 }
 
 impl App {
-    fn new(template: ConfigTemplateBuilder, display_builder: DisplayBuilder) -> Self {
+    pub fn new(template: ConfigTemplateBuilder, window_attributes: WindowAttributes) -> Self {
         Self {
             template,
-            gl_display: GlDisplayCreationState::Builder(display_builder),
+            gl_display: GlDisplayCreationState::Builder(
+                DisplayBuilder::new().with_window_attributes(Some(window_attributes.clone())),
+            ),
             exit_state: Ok(()),
             gl_context: None,
             state: None,
             renderer: None,
+            window_attributes: window_attributes,
+            shaders: None,
+            buffer_data: BufferData { vertices: None },
         }
+    }
+
+    pub fn with_shaders(mut self, vertex: &'static str, fragment: &'static str) -> Self {
+        self.shaders = Some(Shaders { vertex, fragment });
+        self
+    }
+
+    pub fn with_buffer_data(mut self, buffer_data: BufferData) -> Self {
+        self.buffer_data = buffer_data;
+        self
     }
 }
 
@@ -154,7 +164,11 @@ impl ApplicationHandler for App {
                 println!("Recreating window in `resumed`");
                 // Pick the config which we already use for the context.
                 let gl_config = self.gl_context.as_ref().unwrap().config();
-                match glutin_winit::finalize_window(event_loop, window_attributes(), &gl_config) {
+                match glutin_winit::finalize_window(
+                    event_loop,
+                    self.window_attributes.clone(),
+                    &gl_config,
+                ) {
                     Ok(window) => (window, gl_config),
                     Err(err) => {
                         self.exit_state = Err(err.into());
@@ -181,8 +195,13 @@ impl ApplicationHandler for App {
         let gl_context = self.gl_context.as_ref().unwrap();
         gl_context.make_current(&gl_surface).unwrap();
 
-        self.renderer
-            .get_or_insert_with(|| Renderer::new(&gl_config.display()));
+        self.renderer.get_or_insert_with(|| {
+            Renderer::new(
+                &gl_config.display(),
+                self.shaders.as_ref().unwrap(),
+                &self.buffer_data,
+            )
+        });
 
         // Try setting vsync.
         if let Err(res) = gl_surface
@@ -316,12 +335,12 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
 pub struct Renderer {
     program: gl::types::GLuint,
     vao: gl::types::GLuint,
-    vbo: gl::types::GLuint,
+    vbo: Option<gl::types::GLuint>,
     gl: gl::Gl,
 }
 
 impl Renderer {
-    pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
+    pub fn new<D: GlDisplay>(gl_display: &D, shaders: &Shaders, buffer_data: &BufferData) -> Self {
         unsafe {
             let gl = gl::Gl::load_with(|symbol| {
                 let symbol = CString::new(symbol).unwrap();
@@ -339,12 +358,9 @@ impl Renderer {
                 println!("Shaders version on {}", shaders_version.to_string_lossy());
             }
 
-            let vertex_shader_source = concat!(include_str!("main.vs"), "\0");
-            let fragment_shader_source = concat!(include_str!("main.fs"), "\0");
-            let vertex_shader =
-                create_shader(&gl, gl::VERTEX_SHADER, vertex_shader_source.as_bytes());
+            let vertex_shader = create_shader(&gl, gl::VERTEX_SHADER, shaders.vertex.as_bytes());
             let fragment_shader =
-                create_shader(&gl, gl::FRAGMENT_SHADER, fragment_shader_source.as_bytes());
+                create_shader(&gl, gl::FRAGMENT_SHADER, shaders.fragment.as_bytes());
 
             let program = gl.CreateProgram();
 
@@ -362,15 +378,18 @@ impl Renderer {
             gl.GenVertexArrays(1, &mut vao);
             gl.BindVertexArray(vao);
 
-            let mut vbo = std::mem::zeroed();
-            gl.GenBuffers(1, &mut vbo);
-            gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
-            gl.BufferData(
-                gl::ARRAY_BUFFER,
-                (VERTEX_DATA.len() * std::mem::size_of::<f32>()) as gl::types::GLsizeiptr,
-                VERTEX_DATA.as_ptr() as *const _,
-                gl::STATIC_DRAW,
-            );
+            let mut vbo = None;
+            if let Some(vertices) = &buffer_data.vertices {
+                vbo = Some(std::mem::zeroed());
+                gl.GenBuffers(1, vbo.as_mut().unwrap());
+                gl.BindBuffer(gl::ARRAY_BUFFER, vbo.unwrap());
+                gl.BufferData(
+                    gl::ARRAY_BUFFER,
+                    (vertices.len() * std::mem::size_of::<f32>()) as gl::types::GLsizeiptr,
+                    vertices.as_ptr() as *const _,
+                    gl::STATIC_DRAW,
+                );
+            }
 
             let pos_attrib = gl.GetAttribLocation(program, b"position\0".as_ptr() as *const _);
             let color_attrib = gl.GetAttribLocation(program, b"color\0".as_ptr() as *const _);
@@ -417,7 +436,9 @@ impl Renderer {
             self.gl.UseProgram(self.program);
 
             self.gl.BindVertexArray(self.vao);
-            self.gl.BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+            if let Some(vbo) = self.vbo {
+                self.gl.BindBuffer(gl::ARRAY_BUFFER, vbo);
+            }
 
             self.gl.ClearColor(red, green, blue, alpha);
             self.gl.Clear(gl::COLOR_BUFFER_BIT);
@@ -444,7 +465,9 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             self.gl.DeleteProgram(self.program);
-            self.gl.DeleteBuffers(1, &self.vbo);
+            if let Some(vbo) = self.vbo {
+                self.gl.DeleteBuffers(1, &vbo);
+            }
             self.gl.DeleteVertexArrays(1, &self.vao);
         }
     }
@@ -472,10 +495,3 @@ fn get_gl_string(gl: &gl::Gl, variant: gl::types::GLenum) -> Option<&'static CSt
         (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
     }
 }
-
-#[rustfmt::skip]
-static VERTEX_DATA: [f32; 15] = [
-    -0.5, -0.5,  1.0,  0.0,  0.0,
-     0.0,  0.5,  0.0,  1.0,  0.0,
-     0.5, -0.5,  0.0,  0.0,  1.0,
-];
