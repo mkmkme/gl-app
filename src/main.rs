@@ -197,6 +197,9 @@ impl ApplicationHandler for App {
             .is_none());
     }
 
+    // NOTE (mkmkme): Documentation states that this even is currently only raised on Android.
+    // However, it also states that the application should be prepared to handle this event on
+    // all platforms, so keeping it in the code base.
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         // This event is only raised on Android, where the backing NativeWindow for a GL
         // Surface can appear and disappear at any moment.
