@@ -24,9 +24,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             concat!(include_str!("triangle.vs"), "\0"),
             concat!(include_str!("triangle.fs"), "\0"),
         )
-        .with_buffer_data(BufferData {
-            vertices: Some(VERTEX_DATA.to_vec()),
-        });
+        .with_buffer_data(
+            BufferData::new()
+                .with_vertices(VERTEX_DATA.to_vec())
+                .with_attrib("position", 2, 5, 0)
+                .with_attrib("color", 3, 5, 2),
+        );
     event_loop.run_app(&mut app)?;
 
     app.exit_state
