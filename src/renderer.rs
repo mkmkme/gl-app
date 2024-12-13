@@ -1,16 +1,60 @@
 use std::ffi::{CStr, CString};
 use std::ops::Deref;
 
-use crate::app::{BufferData, Shaders};
 use crate::gl;
 use ::gl::types::GLfloat;
 use glutin::prelude::GlDisplay;
+
+pub(super) struct Shaders {
+    pub(super) vertex: &'static str,
+    pub(super) fragment: &'static str,
+}
+
+/// Contains name, size, stride, and offset of an attribute.
+pub struct AttribInfo(String, i32, i32, usize);
+
+/// Contains index, size, stride, and offset of an input.
+pub struct ShaderInputInfo(u32, i32, i32, usize);
+
+pub struct BufferData {
+    pub vertices: Option<Vec<f32>>,
+    pub attribs: Vec<AttribInfo>,
+    pub inputs: Vec<ShaderInputInfo>,
+}
+
+impl BufferData {
+    pub fn new() -> Self {
+        Self {
+            vertices: None,
+            attribs: Vec::new(),
+            inputs: Vec::new(),
+        }
+    }
+
+    pub fn with_vertices(mut self, vertices: Vec<f32>) -> Self {
+        self.vertices = Some(vertices);
+        self
+    }
+
+    pub fn with_attrib(mut self, name: &str, size: i32, stride: i32, offset: usize) -> Self {
+        self.attribs
+            .push(AttribInfo(name.into(), size, stride, offset));
+        self
+    }
+
+    pub fn with_input(mut self, index: u32, size: i32, stride: i32, offset: usize) -> Self {
+        self.inputs
+            .push(ShaderInputInfo(index, size, stride, offset));
+        self
+    }
+}
 
 pub struct Renderer {
     program: gl::types::GLuint,
     vao: gl::types::GLuint,
     vbo: Option<gl::types::GLuint>,
     gl: gl::Gl,
+    draw_callback: Option<Box<dyn Fn(&Renderer)>>,
 }
 
 impl Renderer {
@@ -18,6 +62,7 @@ impl Renderer {
         gl_display: &D,
         shaders: &Shaders,
         buffer_data: &BufferData,
+        draw_callback: Option<Box<dyn Fn(&Renderer)>>,
     ) -> Self {
         unsafe {
             let gl = gl::Gl::load_with(|symbol| {
@@ -69,33 +114,48 @@ impl Renderer {
                 );
             }
 
-            let pos_attrib = gl.GetAttribLocation(program, b"position\0".as_ptr() as *const _);
-            let color_attrib = gl.GetAttribLocation(program, b"color\0".as_ptr() as *const _);
-            gl.VertexAttribPointer(
-                pos_attrib as gl::types::GLuint,
-                2,
-                gl::FLOAT,
-                0,
-                5 * std::mem::size_of::<f32>() as gl::types::GLsizei,
-                std::ptr::null(),
-            );
-            gl.VertexAttribPointer(
-                color_attrib as gl::types::GLuint,
-                3,
-                gl::FLOAT,
-                0,
-                5 * std::mem::size_of::<f32>() as gl::types::GLsizei,
-                (2 * std::mem::size_of::<f32>()) as *const () as *const _,
-            );
-            gl.EnableVertexAttribArray(pos_attrib as gl::types::GLuint);
-            gl.EnableVertexAttribArray(color_attrib as gl::types::GLuint);
+            for attrib in &buffer_data.attribs {
+                let attrib_name = attrib.0.clone() + "\0";
+                let attrib_location =
+                    gl.GetAttribLocation(program, attrib_name.as_ptr() as *const _);
+                gl.VertexAttribPointer(
+                    attrib_location as gl::types::GLuint,
+                    attrib.1 as gl::types::GLint,
+                    gl::FLOAT,
+                    0,
+                    attrib.2 * std::mem::size_of::<f32>() as gl::types::GLsizei,
+                    (attrib.3 * std::mem::size_of::<f32>()) as *const () as *const _,
+                );
+                gl.EnableVertexAttribArray(attrib_location as gl::types::GLuint);
+            }
+
+            for input in &buffer_data.inputs {
+                gl.VertexAttribPointer(
+                    input.0 as gl::types::GLuint,
+                    input.1 as gl::types::GLint,
+                    gl::FLOAT,
+                    0,
+                    input.2 * std::mem::size_of::<f32>() as gl::types::GLsizei,
+                    (input.3 * std::mem::size_of::<f32>()) as *const () as *const _,
+                );
+                gl.EnableVertexAttribArray(input.0 as gl::types::GLuint);
+            }
 
             Self {
                 program,
                 vao,
                 vbo,
                 gl,
+                draw_callback,
             }
+        }
+    }
+
+    pub fn uniform4f(&self, name: &str, x: f32, y: f32, z: f32, w: f32) {
+        unsafe {
+            let name = CString::new(name).unwrap();
+            let location = self.gl.GetUniformLocation(self.program, name.as_ptr());
+            self.gl.Uniform4f(location, x, y, z, w);
         }
     }
 
@@ -112,6 +172,10 @@ impl Renderer {
     ) {
         unsafe {
             self.gl.UseProgram(self.program);
+
+            if let Some(callback) = &self.draw_callback {
+                callback(self);
+            }
 
             self.gl.BindVertexArray(self.vao);
             if let Some(vbo) = self.vbo {

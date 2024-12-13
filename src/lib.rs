@@ -8,4 +8,5 @@ pub mod gl {
 mod app;
 mod renderer;
 
-pub use app::{App, BufferData};
+pub use app::App;
+pub use renderer::{BufferData, Renderer};

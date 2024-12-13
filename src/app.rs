@@ -19,22 +19,13 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
-use crate::renderer::Renderer;
+use crate::renderer::{BufferData, Renderer, Shaders};
 
 enum GlDisplayCreationState {
     /// The display was not build yet.
     Builder(DisplayBuilder),
     /// The display was already created for the application.
     Init,
-}
-
-pub(super) struct Shaders {
-    pub(super) vertex: &'static str,
-    pub(super) fragment: &'static str,
-}
-
-pub struct BufferData {
-    pub vertices: Option<Vec<f32>>,
 }
 
 pub struct App {
@@ -49,6 +40,7 @@ pub struct App {
     window_attributes: WindowAttributes,
     shaders: Option<Shaders>,
     buffer_data: BufferData,
+    draw_callback: Option<Box<dyn Fn(&Renderer)>>,
 }
 
 impl App {
@@ -64,7 +56,8 @@ impl App {
             renderer: None,
             window_attributes: window_attributes,
             shaders: None,
-            buffer_data: BufferData { vertices: None },
+            buffer_data: BufferData::new(),
+            draw_callback: None,
         }
     }
 
@@ -75,6 +68,11 @@ impl App {
 
     pub fn with_buffer_data(mut self, buffer_data: BufferData) -> Self {
         self.buffer_data = buffer_data;
+        self
+    }
+
+    pub fn with_draw_callback(mut self, draw_callback: Box<dyn Fn(&Renderer)>) -> Self {
+        self.draw_callback = Some(draw_callback);
         self
     }
 }
@@ -150,6 +148,7 @@ impl ApplicationHandler for App {
                 &gl_config.display(),
                 self.shaders.as_ref().unwrap(),
                 &self.buffer_data,
+                self.draw_callback.take(),
             )
         });
 
